@@ -1,0 +1,11 @@
+# Build and install outputs
+out/
+build/
+Artifacts/
+CMakeUserPresets.json
+
+# Visual Studio / VS Code caches
+.vs/
+.vscode/
+*.user
+*.suo

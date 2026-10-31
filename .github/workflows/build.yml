@@ -1,0 +1,105 @@
+name: Build & Release (x64 & ARM64)
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      build_configuration:
+        description: '选择编译配置 (Release / Debug / All)'
+        required: true
+        default: 'Release'
+        type: choice
+        options:
+          - Release
+          - Debug
+          - All
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build (${{ matrix.arch }} - ${{ matrix.config }})
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x64, ARM64]
+        config: [Release, Debug]
+        exclude:
+          - config: ${{ (github.event_name != 'workflow_dispatch' || inputs.build_configuration == 'Release') && 'Debug' || 'None' }}
+          - config: ${{ (github.event_name == 'workflow_dispatch' && inputs.build_configuration == 'Debug') && 'Release' || 'None' }}
+        include:
+          - arch: x64
+            msvc_arch: x64
+            config: Release
+            preset: x64-release
+          - arch: x64
+            msvc_arch: x64
+            config: Debug
+            preset: x64-debug
+          - arch: ARM64
+            msvc_arch: x64_arm64
+            config: Release
+            preset: arm64-release
+          - arch: ARM64
+            msvc_arch: x64_arm64
+            config: Debug
+            preset: arm64-debug
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup MSVC Developer Command Prompt (${{ matrix.arch }})
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: ${{ matrix.msvc_arch }}
+
+      - name: Configure CMake (${{ matrix.preset }})
+        run: cmake --preset ${{ matrix.preset }}
+
+      - name: Build (${{ matrix.preset }})
+        run: cmake --build --preset ${{ matrix.preset }}
+
+      - name: Install Artifact (${{ matrix.preset }})
+        run: cmake --install out/build/${{ matrix.preset }}
+
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: LiteLauncher-${{ matrix.arch }}-${{ matrix.config }}
+          path: out/install/${{ matrix.preset }}/LiteLauncher.exe
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Download Build Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare Release Assets
+        run: |
+          cp artifacts/LiteLauncher-x64-Release/LiteLauncher.exe artifacts/LiteLauncher-x64.exe
+          cp artifacts/LiteLauncher-ARM64-Release/LiteLauncher.exe artifacts/LiteLauncher-ARM64.exe
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            artifacts/LiteLauncher-x64.exe
+            artifacts/LiteLauncher-ARM64.exe
+
